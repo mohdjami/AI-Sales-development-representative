@@ -1,0 +1,21 @@
+[
+    {
+      "author": "John Doe",
+      "role": "Data Engineer",
+      "company": "XYZ Corp",
+      "post": "We've been struggling with tracking data lineage across multiple pipelines. Looking for a robust solution to visualize dependencies.",
+      "likes": 45,
+      "comments": 12,
+      "hashtags": ["#DataGovernance", "#MetadataManagement"]
+    },
+    {
+      "author": "Jane Smith",
+      "role": "CTO",
+      "company": "ABC Tech",
+      "post": "Ensuring compliance and governance across our cloud-based data warehouse is a nightmare. How do you automate governance policies?",
+      "likes": 67,
+      "comments": 22,
+      "hashtags": ["#DataGovernance", "#Compliance"]
+    }
+  ]
+  

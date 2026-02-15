@@ -1,0 +1,33 @@
+# requirements.txt
+langchain
+langchain_community
+langchain_openai
+langgraph
+python-dotenv
+openai
+linkedin-api  # For LinkedIn access
+loguru
+pydantic
+pytest
+python-decouple
+sqlalchemy
+fastapi
+uvicorn
+requests
+selenium 
+beautifulsoup4
+pandas
+playwright
+redis
+supabase
+google-auth 
+google-auth-oauthlib 
+google-auth-httplib2 
+google-api-python-client
+python-dotenv
+mysql-connector-python
+python-jose[cryptography]
+authlib
+pyjwt
+itsdangerous
+pinecone
