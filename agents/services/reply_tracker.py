@@ -1,80 +1,24 @@
 import os
-import base64
-from google.oauth2.credentials import Credentials
-from googleapiclient.discovery import build
-from dotenv import load_dotenv
-from supabase import create_client
-from services.llm_service import LLMService
-from google_auth_oauthlib.flow import InstalledAppFlow
-import os
-from google.auth.transport.requests import Request
-from langchain_core.messages import SystemMessage, HumanMessage
 import logging
-from typing import List, Dict, Optional, Set
+from dotenv import load_dotenv
+from services.llm_service import LLMService
+from langchain_core.messages import SystemMessage, HumanMessage
 
 
 load_dotenv()
 
-# Initialize Supabase
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_ANON_KEY = os.getenv("SUPABASE_ANON_KEY")
-supabase = create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
-
-# Path to your credentials file
-GMAIL_CREDENTIALS = "credentials.json"
-
-# Define the required scopes
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-
-# Groq AI Model for Sentiment & Intent Analysis
+# AI Model for Sentiment & Intent Analysis
 AI_MODEL = LLMService()
-
-# Gmail API Credentials
-GMAIL_CREDENTIALS = "credentials.json"
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler('reply_tracker.log'),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
-
-def get_gmail_service():
-    """Authenticate and return a Gmail API service instance."""
-    try:
-        logger.info("Initializing Gmail service")
-        
-        creds = None
-
-        # Check if token.json exists (stores refreshed credentials)
-        if os.path.exists("token.json"):
-            creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-
-        # If no valid credentials, request new ones
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())  # Refresh the expired token
-            else:
-                # Start OAuth flow to generate new credentials
-                flow = InstalledAppFlow.from_client_secrets_file(GMAIL_CREDENTIALS, SCOPES)
-                creds = flow.run_local_server(port=0, prompt="select_account")
-
-                # Save the credentials for future use
-                with open("token.json", "w") as token_file:
-                    token_file.write(creds.to_json())
-
-        # Build the Gmail service
-        service = build("gmail", "v1", credentials=creds)
-        logger.info("Gmail service successfully initialized")
-        return service
-
-    except Exception as e:
-        logger.error(f"Error initializing Gmail service: {str(e)}")
-        raise
 
 async def analyze_sentiment(text):
     """Use AI to analyze sentiment & intent of email responses for Atlan's data catalog/governance solutions"""

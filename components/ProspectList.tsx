@@ -11,9 +11,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import ProspectCard from './ProspectCard';
 import ProspectModal, { Prospect } from './ProspectModal';
+import ProspectPreferencesForm from './ProspectPreferencesForm';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 type ProspectListProps = {
   initialProspects: Prospect[];
@@ -26,16 +36,35 @@ export default function ProspectList({ initialProspects }: ProspectListProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('alignment');
   const [minScore, setMinScore] = useState('0.5');
+  const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  const handleGenerateNewProspects = async () => {
+  const handleGenerateNewProspects = async (preferences: { company_description: string; goal: string; job_titles: string[] }) => {
     setLoading(true);
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://ai-sdr-production.up.railway.app';
-      const response = await fetch(`${apiUrl}/prospects?min_alignment_score=${minScore}`);
+      const response = await fetch(`${apiUrl}/prospects/discover`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(preferences),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to discover prospects');
+      }
+
       const data = await response.json();
-      setProspects(data.prospects);
+      if (data.prospects && data.prospects.length > 0) {
+        setProspects(data.prospects);
+        toast.success(`Found ${data.prospects.length} new prospects!`);
+        setIsDialogOpen(false);
+      } else {
+        toast.info("No new prospects found with existing criteria.");
+      }
     } catch (error) {
       console.error('Error generating prospects:', error);
+      toast.error("Failed to generate prospects. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -44,19 +73,26 @@ export default function ProspectList({ initialProspects }: ProspectListProps) {
   const filteredProspects = prospects
     .filter((prospect) => {
       const query = searchQuery.toLowerCase();
+      // Safely handle potential undefined fields
+      const author = prospect.author || '';
+      const role = prospect.role || '';
+      const company = prospect.company || '';
+      const industry = prospect.industry || '';
+
       return (
-        prospect.author.toLowerCase().includes(query) ||
-        prospect.role.toLowerCase().includes(query) ||
-        prospect.company.toLowerCase().includes(query) ||
-        prospect.industry.toLowerCase().includes(query)
+        author.toLowerCase().includes(query) ||
+        role.toLowerCase().includes(query) ||
+        company.toLowerCase().includes(query) ||
+        industry.toLowerCase().includes(query)
       );
     })
     .sort((a, b) => {
       if (sortBy === 'alignment') {
-        return b.alignment_score - a.alignment_score;
+        return (b.alignment_score || 0) - (a.alignment_score || 0);
       }
       return 0;
     });
+
 
   return (
     <div className="space-y-6">
@@ -82,32 +118,23 @@ export default function ProspectList({ initialProspects }: ProspectListProps) {
             </SelectContent>
           </Select>
 
-          <div className="flex items-center gap-2 bg-background/50 border border-border/50 rounded-md px-3 py-2">
-            <span className="text-sm text-muted-foreground whitespace-nowrap">Min Score:</span>
-            <Input
-              type="number"
-              value={minScore}
-              onChange={(e) => setMinScore(e.target.value)}
-              className="w-16 h-6 p-1 text-center bg-transparent border-none focus-visible:ring-0"
-              min="0"
-              max="1"
-              step="0.1"
-            />
-          </div>
-
-          <Button onClick={handleGenerateNewProspects} disabled={loading} className="ml-auto md:ml-0 shadow-lg shadow-primary/20">
-            {loading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Finding...
-              </>
-            ) : (
-              <>
+          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="ml-auto md:ml-0 shadow-lg shadow-primary/20">
                 <Plus className="mr-2 h-4 w-4" />
                 Find New Prospects
-              </>
-            )}
-          </Button>
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[500px]">
+              <DialogHeader>
+                <DialogTitle>Find New Prospects</DialogTitle>
+                <DialogDescription>
+                  Enter your company details and goals to find relevant leads from the web.
+                </DialogDescription>
+              </DialogHeader>
+              <ProspectPreferencesForm onSubmit={handleGenerateNewProspects} isLoading={loading} />
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
@@ -125,7 +152,7 @@ export default function ProspectList({ initialProspects }: ProspectListProps) {
             </p>
           </div>
           {prospects.length === 0 && (
-            <Button onClick={handleGenerateNewProspects} variant="outline" className="mt-4">
+            <Button onClick={() => setIsDialogOpen(true)} variant="outline" className="mt-4">
               Generate Prospects
             </Button>
           )}
@@ -148,3 +175,4 @@ export default function ProspectList({ initialProspects }: ProspectListProps) {
     </div>
   );
 }
+

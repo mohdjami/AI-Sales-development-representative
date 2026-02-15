@@ -19,7 +19,7 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Credentials', value: 'true' },
           {
             key: 'Access-Control-Allow-Origin',
-            value: 'https://ai-sdr-production.up.railway.app, http://localhost:8001, https://ai-sdr-production-afd7.up.railway.app, https://ai-sdr-production-afd7.up.railway.app/',
+            value: 'https://ai-sdr-production.up.railway.app, http://localhost:8000, https://ai-sdr-production-afd7.up.railway.app, https://ai-sdr-production-afd7.up.railway.app/',
           }, // replace this your actual origin
           {
             key: 'Access-Control-Allow-Methods',

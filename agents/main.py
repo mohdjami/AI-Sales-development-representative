@@ -16,8 +16,10 @@ from urllib.parse import urlencode
 import requests
 
 
-from services.reply_tracker import analyze_sentiment, generate_followup_email, get_gmail_service
+from services.reply_tracker import analyze_sentiment, generate_followup_email
+from services.google_service import GoogleService
 from services.linkedin_service import LinkedInService
+from services.prospect_discovery_service import ProspectDiscoveryService
 from services.email_service import EmailService
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
@@ -169,8 +171,41 @@ async def analyze():
     ans = await linkedin_service.analyze_posts()
     return ans
 
+
+# Request models
+class ProspectDiscoveryRequest(BaseModel):
+    company_description: str
+    goal: str
+    job_titles: List[str]
+
+@app.post('/prospects/discover')
+async def discover_prospects_endpoint(request: ProspectDiscoveryRequest):
+    """Discover prospects using Google Search and Reddit"""
+    try:
+        logger.info(f"Discovering prospects for goal: {request.goal}")
+        service = ProspectDiscoveryService()
+        prospects = await service.discover_prospects(
+            company_description=request.company_description,
+            goal=request.goal,
+            job_titles=request.job_titles
+        )
+        
+        # Cache results
+        if prospects:
+            redis_client.setex("discovered_prospects", 3600, json.dumps(prospects))
+            
+        return {"prospects": prospects}
+    except Exception as e:
+        logger.error(f"Error discovering prospects: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get('/prospects')
 async def get_prospects(min_alignment_score: float = 0.7):
+    # Check for discovered prospects in Redis first
+    cached_discovered = redis_client.get("discovered_prospects")
+    if cached_discovered:
+        return {"prospects": json.loads(cached_discovered)}
+
     linkedin_service = LinkedInService()
     prospects = await linkedin_service.get_prospects(min_alignment_score)
     logger.info(f"prospects: {prospects}")
@@ -810,4 +845,250 @@ async def store_in_vector_db():
         
     except Exception as e:
         logger.error(f"Error storing meeting in vector database: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Google OAuth Endpoints ──────────────────────────────────────
+
+google_service = GoogleService()
+
+
+class SendEmailRequest(BaseModel):
+    to: str
+    subject: str
+    body: str
+    html: bool = False
+    prospect_id: Optional[str] = None
+
+
+class CreateEventRequest(BaseModel):
+    summary: str
+    start_time: str
+    end_time: str
+    description: str = ""
+    attendees: Optional[List[str]] = None
+    location: str = ""
+
+
+@app.get("/auth/google")
+async def google_auth(user: object = Depends(get_current_user)):
+    """Generate Google OAuth consent URL for the authenticated user."""
+    try:
+        state = user.id
+        auth_url = google_service.get_auth_url(state=state)
+        return {"auth_url": auth_url}
+    except Exception as e:
+        logger.error(f"Error generating Google auth URL: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/auth/google/callback")
+async def google_callback(code: str, state: str = ""):
+    """Handle Google OAuth callback and store tokens."""
+    print(f"\n=== GOOGLE CALLBACK START ===")
+    print(f"Code received: {code[:20]}...")
+    print(f"State (user_id): {state}")
+    
+    try:
+        user_id = state
+        if not user_id:
+            print("ERROR: Missing user_id in state")
+            raise HTTPException(status_code=400, detail="Missing user state")
+
+        print(f"Exchanging code for user: {user_id}")
+        result = await google_service.exchange_code(code, user_id)
+        print(f"Exchange successful: {result}")
+        
+        # Redirect to frontend with success
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        redirect_url = f"{frontend_url}/dashboard?google_connected=true"
+        print(f"Redirecting to: {redirect_url}")
+        print("=== GOOGLE CALLBACK SUCCESS ===")
+        
+        return RedirectResponse(url=redirect_url)
+    except Exception as e:
+        print(f"\n!!! GOOGLE CALLBACK ERROR !!!")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        import traceback
+        print(f"Traceback:\n{traceback.format_exc()}")
+        print("=== GOOGLE CALLBACK FAILED ===")
+        
+        logger.error(f"Google OAuth callback error: {e}")
+        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        return RedirectResponse(
+            url=f"{frontend_url}/dashboard?google_error={str(e)}"
+        )
+
+
+@app.get("/auth/google/status")
+async def google_status(user: object = Depends(get_current_user)):
+    """Check if the user has connected their Google account."""
+    try:
+        status = await google_service.get_connection_status(user.id)
+        return status
+    except Exception as e:
+        logger.error(f"Error checking Google status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/auth/google/disconnect")
+async def google_disconnect(user: object = Depends(get_current_user)):
+    """Disconnect the user's Google account."""
+    try:
+        await google_service.disconnect(user.id)
+        return {"status": "disconnected"}
+    except Exception as e:
+        logger.error(f"Error disconnecting Google: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Email Endpoints (Gmail API) ─────────────────────────────────
+
+
+@app.post("/emails/send")
+async def send_email_gmail(
+    request: SendEmailRequest,
+    user: object = Depends(get_current_user),
+):
+    """Send an email via the user's connected Gmail account."""
+    try:
+        user_id = user.id
+        logger.info(f"User {user_id} sending email to {request.to}")
+
+        # Send via Gmail
+        result = await google_service.send_email(
+            user_id=user_id,
+            to=request.to,
+            subject=request.subject,
+            body=request.body,
+            html=request.html,
+        )
+
+        # Store in Supabase emails table
+        email_record = {
+            "user_id": user_id,
+            "recipient": request.to,
+            "subject": request.subject,
+            "body": request.body,
+            "status": "sent",
+            "sent_at": datetime.now().isoformat(),
+            "gmail_message_id": result["message_id"],
+            "gmail_thread_id": result["thread_id"],
+        }
+        if request.prospect_id:
+            email_record["prospect_id"] = request.prospect_id
+
+        supabase.table("emails").insert(email_record).execute()
+
+        return {
+            "status": "success",
+            "message": f"Email sent to {request.to}",
+            "gmail_message_id": result["message_id"],
+            "gmail_thread_id": result["thread_id"],
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error sending email: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/emails/replies")
+async def get_email_replies(user: object = Depends(get_current_user)):
+    """Fetch real email replies from Gmail and analyze them."""
+    try:
+        user_id = user.id
+        logger.info(f"Fetching email replies for user {user_id}")
+
+        replies_raw = await google_service.get_replies_for_sent_emails(
+            user_id=user_id, max_results=20
+        )
+
+        # Analyze each reply with AI
+        analyzed_emails = []
+        for reply in replies_raw:
+            body = reply.get("body", reply.get("snippet", ""))
+            if not body:
+                continue
+
+            sentiment, intent = await analyze_sentiment(body)
+
+            analyzed_email = {
+                "email": {
+                    "from": reply["from"],
+                    "subject": reply["subject"],
+                    "body": body,
+                    "date": reply.get("date", ""),
+                    "gmail_id": reply["id"],
+                    "thread_id": reply.get("threadId", ""),
+                },
+                "analysis": {
+                    "sentiment": sentiment,
+                    "intent": intent,
+                },
+            }
+
+            if intent == "Follow-Up Required":
+                follow_up = await generate_followup_email(
+                    reply["from"], reply["subject"], body
+                )
+                analyzed_email["suggested_followup"] = follow_up
+
+            analyzed_emails.append(analyzed_email)
+
+        return {
+            "status": "success",
+            "message": f"{len(analyzed_emails)} replies analyzed",
+            "analyzed_emails": analyzed_emails,
+        }
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error fetching replies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Calendar Endpoints ──────────────────────────────────────────
+
+
+@app.get("/calendar/events")
+async def list_calendar_events(
+    max_results: int = 10,
+    user: object = Depends(get_current_user),
+):
+    """List upcoming Google Calendar events."""
+    try:
+        events = await google_service.list_events(
+            user_id=user.id, max_results=max_results
+        )
+        return {"status": "success", "events": events}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error listing calendar events: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/calendar/events")
+async def create_calendar_event(
+    request: CreateEventRequest,
+    user: object = Depends(get_current_user),
+):
+    """Create a new Google Calendar event with optional Google Meet link."""
+    try:
+        event = await google_service.create_event(
+            user_id=user.id,
+            summary=request.summary,
+            start_time=request.start_time,
+            end_time=request.end_time,
+            description=request.description,
+            attendees=request.attendees,
+            location=request.location,
+        )
+        return {"status": "success", "event": event}
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as e:
+        logger.error(f"Error creating calendar event: {e}")
         raise HTTPException(status_code=500, detail=str(e))

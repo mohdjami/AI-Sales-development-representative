@@ -31,3 +31,4 @@ authlib
 pyjwt
 itsdangerous
 pinecone
+googlesearch-python

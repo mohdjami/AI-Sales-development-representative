@@ -3,12 +3,13 @@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { Loader2, Send, Wand2, Copy, Check } from "lucide-react"
+import { Loader2, Send, Wand2, Copy, Check, Mail } from "lucide-react"
 import { toast } from "sonner"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Prospect } from "./ProspectModal"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
+import { createClient } from "@/utils/supabase/client"
 
 type EmailDraft = {
   subject: string
@@ -25,33 +26,65 @@ export default function EmailDraftModal({ prospect, emailDraft, onClose }: Email
   const [loading, setLoading] = useState(false)
   const [email, setEmail] = useState<EmailDraft | null>(emailDraft)
   const [copied, setCopied] = useState(false)
+  const [googleConnected, setGoogleConnected] = useState<boolean | null>(null)
+  const supabase = createClient()
+
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://ai-sdr-production.up.railway.app'
+
+  useEffect(() => {
+    checkGoogleStatus()
+  }, [])
+
+  const checkGoogleStatus = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const res = await fetch(`${apiUrl}/auth/google/status`, {
+        headers: { 'Authorization': `Bearer ${session.access_token}` },
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setGoogleConnected(data.connected)
+      }
+    } catch { setGoogleConnected(false) }
+  }
 
   const handleSendEmail = async () => {
+    if (!googleConnected) {
+      toast.error('Please connect your Google account first (use the Connect Gmail button in the dashboard header)')
+      return
+    }
     setLoading(true)
     try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://ai-sdr-production.up.railway.app'
-      const response = await fetch(`${apiUrl}/send-email`, {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) {
+        toast.error('Please sign in first')
+        return
+      }
+
+      const response = await fetch(`${apiUrl}/emails/send`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
         },
         body: JSON.stringify({
-          prospect: prospect,
-          recipient: prospect.author,
+          to: prospect.author,
           subject: email?.subject,
-          body: email?.content
+          body: email?.content,
         })
       })
 
       if (!response.ok) {
-        toast.error('Error sending the mails!')
+        const err = await response.json()
+        throw new Error(err.detail || 'Failed to send email')
       }
 
-      toast.success('Email sent successfully!')
+      toast.success('Email sent via Gmail successfully!')
       onClose()
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error sending email:', error)
-      toast.error('Failed to send email')
+      toast.error(error.message || 'Failed to send email')
     } finally {
       setLoading(false)
     }

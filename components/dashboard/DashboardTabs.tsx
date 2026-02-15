@@ -4,7 +4,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { DashboardOverview } from './DashboardOverview';
 import { EmailAnalysis, FollowUps } from './FollowUps';
 import { Meeting, MeetingNotes } from './MeetingNotes';
+import { CalendarEvents } from './CalendarEvents';
 import { Prospect } from '../ProspectModal';
+import GoogleConnectButton from '../GoogleConnectButton';
 
 export type EmailSent = {
   recipient?: string;
@@ -34,11 +36,13 @@ export function DashboardTabs({ dashboardData }: DashboardTabsProps) {
   return (
     <Tabs defaultValue="overview" className="space-y-6">
       <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
+        <TabsList className="grid w-full grid-cols-4 lg:w-[500px]">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="follow-ups">Follow-ups</TabsTrigger>
           <TabsTrigger value="meetings">Meetings</TabsTrigger>
+          <TabsTrigger value="calendar">Calendar</TabsTrigger>
         </TabsList>
+        <GoogleConnectButton />
       </div>
 
       <TabsContent value="overview" className="space-y-6 focus-visible:outline-none focus-visible:ring-0">
@@ -51,6 +55,10 @@ export function DashboardTabs({ dashboardData }: DashboardTabsProps) {
 
       <TabsContent value="meetings" className="space-y-6 focus-visible:outline-none focus-visible:ring-0">
         <MeetingNotes initialMeetings={dashboardData.meetings} />
+      </TabsContent>
+
+      <TabsContent value="calendar" className="space-y-6 focus-visible:outline-none focus-visible:ring-0">
+        <CalendarEvents />
       </TabsContent>
     </Tabs>
   );
