@@ -1,11 +1,11 @@
-# requirements.txt
 langchain
 langchain_community
 langchain_openai
 langgraph
+langchain_groq
 python-dotenv
 openai
-linkedin-api  # For LinkedIn access
+linkedin-api
 loguru
 pydantic
 pytest
@@ -14,21 +14,25 @@ sqlalchemy
 fastapi
 uvicorn
 requests
-selenium 
+selenium
 beautifulsoup4
 pandas
 playwright
-redis
+redis==5.0.1
 supabase
-google-auth 
-google-auth-oauthlib 
-google-auth-httplib2 
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
 google-api-python-client
-python-dotenv
 mysql-connector-python
 python-jose[cryptography]
 authlib
 pyjwt
 itsdangerous
 pinecone
-googlesearch-python
+google-search-results
+praw
+langchain_groq
+dnspython>=2.4.0
+aiosmtplib>=3.0.0
+aiohttp
